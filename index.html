@@ -65,6 +65,8 @@ input[type=date],input[type=text],input[type=number],select{
 }
 input:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
 input[type=number]{font-family:var(--mono)}
+.amt-row{display:flex;gap:8px}
+.amt-row select{width:6.4em;flex:none;font-family:var(--mono)}
 .part-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
 .part{border:1px solid var(--line);background:var(--surface2);color:var(--muted);border-radius:999px;padding:7px 15px;font:inherit;font-size:14px;cursor:pointer;transition:.15s}
 .part.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
@@ -80,6 +82,8 @@ input[type=number]{font-family:var(--mono)}
 .exp .t1{font-weight:500}
 .exp .t2{font-size:12px;color:var(--muted);margin-top:2px}
 .exp .amt{font-family:var(--mono);font-weight:600;text-align:right;white-space:nowrap}
+.exp .amt .cur{font-size:11px;color:var(--muted);margin-right:3px}
+.exp .conv{font-size:11px;color:var(--faint);font-family:var(--mono);text-align:right}
 .exp .per{font-size:11.5px;color:var(--blue);font-family:var(--mono);text-align:right}
 .exp .ops{display:flex;gap:10px;justify-content:flex-end;margin-top:5px}
 .linkbtn{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 4px;text-decoration:underline;text-underline-offset:3px}
@@ -88,6 +92,14 @@ input[type=number]{font-family:var(--mono)}
 .empty{color:var(--faint);text-align:center;padding:20px 0;font-size:13.5px}
 
 /* ---- summary ---- */
+.sum-ctl{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.sum-ctl select{width:auto;padding:6px 28px 6px 10px;font-size:13px;font-family:var(--mono);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237E8AA0'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center}
+.sum-ctl .lab{font-size:12px;color:var(--muted)}
+.rate-info{font-size:11.5px;color:var(--faint);margin-bottom:12px;font-family:var(--mono)}
+.cur-head{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--blue);letter-spacing:.1em;margin:16px 0 4px;padding-bottom:4px;border-bottom:1px solid var(--blue-line)}
+.cur-head:first-child{margin-top:0}
 .srow{display:grid;grid-template-columns:4.6em 1fr auto;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
 .srow:first-of-type{border-top:none}
 .srow .name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -138,7 +150,7 @@ input[type=number]{font-family:var(--mono)}
 
 <!-- KPI -->
 <div class="kpis">
-  <div class="kpi hl"><div class="lab">總支出</div><div class="val" id="kpiTotal">0</div></div>
+  <div class="kpi hl"><div class="lab" id="kpiTotalLab">總支出</div><div class="val" id="kpiTotal">0</div></div>
   <div class="kpi"><div class="lab">筆數</div><div class="val" id="kpiCount">0</div></div>
   <div class="kpi"><div class="lab">帳目</div><div class="val" id="kpiBalance" style="font-size:13px">—</div></div>
 </div>
@@ -160,12 +172,18 @@ input[type=number]{font-family:var(--mono)}
   </div>
   <div class="grid2">
     <div><label>品項</label><input type="text" id="fItem" placeholder="例：Lunch / Court"></div>
-    <div><label>金額</label><input type="number" id="fAmount" inputmode="decimal" placeholder="0"></div>
+    <div><label>金額 · 幣別</label>
+      <div class="amt-row">
+        <input type="number" id="fAmount" inputmode="decimal" placeholder="0">
+        <select id="fCur"></select>
+      </div>
+    </div>
   </div>
   <label>參與分攤的人（點選）</label>
   <div class="part-row" id="fParts"></div>
   <button class="btn" id="submitExp">加入這筆費用</button>
   <button class="btn secondary" id="cancelEdit" style="display:none">取消編輯</button>
+  <div class="hint">幣別會記住你上一次輸入的選擇。</div>
 </div>
 
 <!-- 費用清單 -->
@@ -177,6 +195,17 @@ input[type=number]{font-family:var(--mono)}
 <!-- 彙整 -->
 <div class="card">
   <h2>彙整 · 結算</h2>
+  <div class="sum-ctl">
+    <span class="lab">結算方式</span>
+    <button class="part" type="button" id="modeMixed">混合結算</button>
+    <button class="part" type="button" id="modeByCur">按幣別結算</button>
+  </div>
+  <div class="sum-ctl" id="baseRow">
+    <span class="lab">結算幣別</span>
+    <select id="baseCur"></select>
+    <button class="linkbtn" id="rateBtn">↻ 更新匯率</button>
+  </div>
+  <div class="rate-info" id="rateInfo">匯率尚未載入</div>
   <div id="summary"></div>
   <div class="settle" id="settle"></div>
 </div>
@@ -204,12 +233,18 @@ input[type=number]{font-family:var(--mono)}
 
 <script>
 'use strict';
-const KEY='expense-split-v1';
+const KEY='expense-split-v2';
+const OLDKEY='expense-split-v1';
 const $=id=>document.getElementById(id);
 const uid=()=>Math.random().toString(36).slice(2,9);
 const fmt=n=>Number(n).toLocaleString('zh-Hant',{maximumFractionDigits:2});
 
-/* ---------- custom confirm (取代被沙盒擋掉的 confirm()) ---------- */
+/* ---------- currencies ---------- */
+const CURRENCIES=['IDR','TWD','USD','EUR','JPY','SGD','MYR','CNY','THB','VND','KRW','GBP','AUD','HKD','PHP'];
+const RATE_API='https://open.er-api.com/v6/latest/USD'; // 免金鑰，含 IDR / TWD
+const RATE_MAX_AGE=12*60*60*1000; // 超過 12 小時視為過期，開啟時自動重抓
+
+/* ---------- custom confirm ---------- */
 let dlgCb=null;
 function askConfirm(msg,onYes,danger){
   $('dlgMsg').textContent=msg;
@@ -222,12 +257,24 @@ $('dlgNo').onclick=()=>{$('overlay').classList.remove('show');dlgCb=null;};
 $('overlay').onclick=e=>{if(e.target===$('overlay')){$('overlay').classList.remove('show');dlgCb=null;}};
 
 /* ---------- state + storage ---------- */
-let state={members:[],expenses:[],backups:[]};
-let mem=null; // in-memory fallback
+let state={members:[],expenses:[],backups:[],base:'IDR',lastCur:'IDR',settleMode:'mixed',rates:{map:null,fetchedAt:null}};
+let mem=null;
+function normalize(){
+  if(!state.base)state.base='IDR';
+  if(!state.lastCur)state.lastCur=state.base;
+  if(!state.rates)state.rates={map:null,fetchedAt:null};
+  if(!state.settleMode)state.settleMode='mixed';
+  state.expenses.forEach(e=>{if(!e.cur)e.cur=state.base;}); // 舊資料補上幣別
+}
 function load(){
-  try{const raw=localStorage.getItem(KEY); if(raw){state=JSON.parse(raw);return;}}catch(e){}
-  if(mem){state=mem;return;}
-  state={members:[{id:uid(),name:'Pai'},{id:uid(),name:'Sophie'},{id:uid(),name:'Zoe'},{id:uid(),name:'Randy'}],expenses:[],backups:[]};
+  try{
+    let raw=localStorage.getItem(KEY);
+    if(!raw)raw=localStorage.getItem(OLDKEY); // 沿用舊版資料
+    if(raw){state=Object.assign(state,JSON.parse(raw));normalize();return;}
+  }catch(e){}
+  if(mem){state=mem;normalize();return;}
+  state.members=[{id:uid(),name:'Pai'},{id:uid(),name:'Sophie'},{id:uid(),name:'Zoe'},{id:uid(),name:'Randy'}];
+  normalize();
 }
 function save(){
   try{localStorage.setItem(KEY,JSON.stringify(state));}
@@ -237,6 +284,39 @@ function save(){
 /* ---------- toast ---------- */
 let tt;
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2400);}
+
+/* ---------- exchange rates ---------- */
+function ratesFresh(){return state.rates.fetchedAt&&(Date.now()-new Date(state.rates.fetchedAt).getTime())<RATE_MAX_AGE;}
+async function fetchRates(silent){
+  const btn=$('rateBtn');btn.disabled=true;btn.textContent='更新中…';
+  try{
+    const r=await fetch(RATE_API);
+    const j=await r.json();
+    if(j&&j.result==='success'&&j.rates){
+      state.rates={map:j.rates,fetchedAt:new Date().toISOString()};
+      save();renderAll();
+      if(!silent)toast('匯率已更新');
+    }else throw 0;
+  }catch(e){
+    if(!silent)toast(state.rates.map?'更新失敗，沿用上次匯率':'無法取得匯率（需要網路）');
+    renderRateInfo();
+  }
+  btn.disabled=false;btn.textContent='↻ 更新匯率';
+}
+function renderRateInfo(){
+  const el=$('rateInfo');
+  if(!state.rates.map){el.textContent='匯率尚未載入 — 多幣別金額暫無法換算';return;}
+  const d=new Date(state.rates.fetchedAt);
+  const stale=!ratesFresh();
+  el.textContent='匯率更新於 '+d.toLocaleDateString('zh-Hant')+' '+d.toLocaleTimeString('zh-Hant',{hour:'2-digit',minute:'2-digit'})+(stale?'（已超過 12 小時）':'');
+}
+/* cur → 結算幣別（匯率以 USD 為基準） */
+function toBase(amount,cur){
+  if(cur===state.base)return amount;
+  const m=state.rates.map;
+  if(!m||!m[cur]||!m[state.base])return null;
+  return amount/m[cur]*m[state.base];
+}
 
 /* ---------- members ---------- */
 function renderMembers(){
@@ -266,6 +346,9 @@ function renderForm(){
   const sel=$('fPayer');const cur=sel.value;sel.innerHTML='<option value="">— 選擇 —</option>';
   state.members.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=m.name;sel.appendChild(o);});
   if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+  const cs=$('fCur');const curSel=cs.value;cs.innerHTML='';
+  CURRENCIES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cs.appendChild(o);});
+  cs.value=curSel&&CURRENCIES.includes(curSel)?curSel:state.lastCur;
   const box=$('fParts');box.innerHTML='';
   state.members.forEach(m=>{
     const b=document.createElement('button');b.type='button';b.className='part'+(selectedParts.has(m.id)?' on':'');
@@ -278,13 +361,15 @@ function resetForm(){
   editingId=null;selectedParts=new Set();
   $('fDate').value=new Date().toISOString().slice(0,10);
   $('fPayer').value='';$('fItem').value='';$('fAmount').value='';
+  $('fCur').value=state.lastCur; // 預設沿用上次幣別
   $('formTitle').textContent='新增費用';$('submitExp').textContent='加入這筆費用';
   $('cancelEdit').style.display='none';renderForm();
 }
 $('cancelEdit').onclick=resetForm;
 $('submitExp').onclick=()=>{
   const date=$('fDate').value, payer=$('fPayer').value,
-        item=$('fItem').value.trim(), amount=parseFloat($('fAmount').value);
+        item=$('fItem').value.trim(), amount=parseFloat($('fAmount').value),
+        cur=$('fCur').value;
   if(!date){toast('請選擇日期');return;}
   if(!payer){toast('請選擇付款人');return;}
   if(!(amount>0)){toast('請輸入金額');return;}
@@ -292,12 +377,13 @@ $('submitExp').onclick=()=>{
   const parts=state.members.filter(m=>selectedParts.has(m.id)).map(m=>m.id);
   if(editingId){
     const e=state.expenses.find(x=>x.id===editingId);
-    Object.assign(e,{date,payer,item:item||'未命名',amount,parts});
+    Object.assign(e,{date,payer,item:item||'未命名',amount,cur,parts});
     toast('已更新');
   }else{
-    state.expenses.push({id:uid(),date,payer,item:item||'未命名',amount,parts});
+    state.expenses.push({id:uid(),date,payer,item:item||'未命名',amount,cur,parts});
     toast('已加入');
   }
+  state.lastCur=cur; // 記住這次的幣別作為下次預設
   save();resetForm();renderAll();
 };
 
@@ -308,12 +394,17 @@ function renderExpenses(){
   if(state.expenses.length===0){box.innerHTML='<div class="empty">尚無費用，從上方輸入第一筆</div>';return;}
   [...state.expenses].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{
     const per=e.amount/e.parts.length;
+    const conv=toBase(e.amount,e.cur);
+    const convLine=(state.settleMode==='mixed'&&e.cur!==state.base)
+      ?(conv!=null?'<div class="conv">≈ '+state.base+' '+fmt(conv)+'</div>':'<div class="conv">匯率未載入</div>')
+      :'';
     const row=document.createElement('div');row.className='exp';
     row.innerHTML=
       '<div><div class="t1">'+esc(e.item)+'</div>'+
       '<div class="t2">'+e.date+' · '+esc(nameOf(e.payer))+' 付 · '+e.parts.map(p=>esc(nameOf(p))).join('、')+'</div></div>'+
-      '<div><div class="amt num">'+fmt(e.amount)+'</div>'+
-      '<div class="per">每人 '+fmt(per)+'</div>'+
+      '<div><div class="amt num"><span class="cur">'+e.cur+'</span>'+fmt(e.amount)+'</div>'+
+      convLine+
+      '<div class="per">每人 '+e.cur+' '+fmt(per)+'</div>'+
       '<div class="ops"><button class="linkbtn" data-e="'+e.id+'">編輯</button>'+
       '<button class="linkbtn del" data-d="'+e.id+'">刪除</button></div></div>';
     box.appendChild(row);
@@ -324,75 +415,155 @@ function renderExpenses(){
   box.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>{
     const e=state.expenses.find(x=>x.id===b.dataset.e);if(!e)return;
     editingId=e.id;selectedParts=new Set(e.parts);
-    $('fDate').value=e.date;$('fPayer').value=e.payer;$('fItem').value=e.item;$('fAmount').value=e.amount;
+    $('fDate').value=e.date;$('fPayer').value=e.payer;$('fItem').value=e.item;$('fAmount').value=e.amount;$('fCur').value=e.cur;
     $('formTitle').textContent='編輯費用';$('submitExp').textContent='儲存修改';
-    $('cancelEdit').style.display='block';renderForm();
+    $('cancelEdit').style.display='block';renderForm();$('fCur').value=e.cur;
     window.scrollTo({top:$('formTitle').getBoundingClientRect().top+window.scrollY-80,behavior:'smooth'});
   });
 }
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
-/* ---------- summary + settlement ---------- */
+/* ---------- summary + settlement（混合結算 / 按幣別結算） ---------- */
 function calc(){
   const bal={};state.members.forEach(m=>bal[m.id]={owed:0,paid:0});
-  let total=0;
+  let total=0,missing=0;
   state.expenses.forEach(e=>{
-    total+=e.amount;
-    const per=e.amount/e.parts.length;
+    const conv=toBase(e.amount,e.cur);
+    if(conv==null){missing++;return;} // 缺匯率的先跳過，並提示
+    total+=conv;
+    const per=conv/e.parts.length;
     e.parts.forEach(p=>{if(bal[p])bal[p].owed+=per;});
-    if(bal[e.payer])bal[e.payer].paid+=e.amount;
+    if(bal[e.payer])bal[e.payer].paid+=conv;
   });
-  return{bal,total};
+  return{bal,total,missing};
 }
-function renderSummary(){
-  const{bal,total}=calc();
+function renderModeButtons(){
+  $('modeMixed').className='part'+(state.settleMode==='mixed'?' on':'');
+  $('modeByCur').className='part'+(state.settleMode==='byCur'?' on':'');
+  $('baseRow').style.display=state.settleMode==='mixed'?'flex':'none';
+  $('rateInfo').style.display=state.settleMode==='mixed'?'block':'none';
+}
+function netRow(x,maxAbs,curLabel){
+  const pct=Math.abs(x.net)/maxAbs*100;
+  const cls=x.net>0.01?'pos':(x.net<-0.01?'neg':'zero');
+  const barCls=x.net>=0?'p':'n';
+  const row=document.createElement('div');row.className='srow';
+  row.innerHTML='<div class="name">'+esc(x.m.name)+'</div>'+
+    '<div class="bar-wrap"><div class="bar '+barCls+'" style="width:'+pct+'%"></div></div>'+
+    '<div class="net '+cls+'">'+(x.net>0.01?'應收 ':'')+(x.net<-0.01?'應付 ':'')+fmt(Math.abs(x.net))+'</div>'+
+    '<div class="sdetail">應付 '+fmt(x.owed)+' · 已付 '+fmt(x.paid)+'（'+curLabel+'）</div>';
+  return row;
+}
+function settleInto(container,nets,curLabel){
+  const debt=nets.filter(x=>x.net<-0.01).map(x=>({name:x.m.name,v:-x.net})).sort((a,b)=>b.v-a.v);
+  const cred=nets.filter(x=>x.net>0.01).map(x=>({name:x.m.name,v:x.net})).sort((a,b)=>b.v-a.v);
+  if(!debt.length||!cred.length)return false;
+  const head=document.createElement('div');head.className='sub';head.style.marginBottom='4px';
+  head.textContent='結算建議（'+curLabel+'）：';container.appendChild(head);
+  let i=0,j=0;
+  while(i<debt.length&&j<cred.length){
+    const pay=Math.min(debt[i].v,cred[j].v);
+    const li=document.createElement('div');li.className='item';
+    li.innerHTML='<span>'+esc(debt[i].name)+'</span><span class="arrow">→</span><span>'+esc(cred[j].name)+'</span><span class="amt">'+fmt(pay)+' '+curLabel+'</span>';
+    container.appendChild(li);
+    debt[i].v-=pay;cred[j].v-=pay;
+    if(debt[i].v<0.01)i++; if(cred[j].v<0.01)j++;
+  }
+  return true;
+}
+/* --- 混合結算：全部換算成同一結算幣別 --- */
+function renderSummaryMixed(){
+  const{bal,total,missing}=calc();
+  $('kpiTotalLab').textContent='總支出（'+state.base+'）';
   $('kpiTotal').textContent=fmt(total);
+  $('kpiTotal').style.fontSize='';
   $('kpiCount').textContent=state.expenses.length;
   const nets=state.members.map(m=>({m,owed:bal[m.id].owed,paid:bal[m.id].paid,net:bal[m.id].paid-bal[m.id].owed}));
   const sumNet=nets.reduce((s,x)=>s+x.net,0);
-  $('kpiBalance').innerHTML=Math.abs(sumNet)<0.01?'<span class="badge-ok">✓ 平衡</span>':'<span class="badge-warn">未平衡</span>';
+  $('kpiBalance').innerHTML=missing>0
+    ?'<span class="badge-warn">'+missing+' 筆缺匯率</span>'
+    :(Math.abs(sumNet)<0.01?'<span class="badge-ok">✓ 平衡</span>':'<span class="badge-warn">未平衡</span>');
   const maxAbs=Math.max(1,...nets.map(x=>Math.abs(x.net)));
   const box=$('summary');box.innerHTML='';
-  nets.forEach(x=>{
-    const pct=Math.abs(x.net)/maxAbs*100;
-    const cls=x.net>0.01?'pos':(x.net<-0.01?'neg':'zero');
-    const barCls=x.net>=0?'p':'n';
-    const row=document.createElement('div');row.className='srow';
-    row.innerHTML='<div class="name">'+esc(x.m.name)+'</div>'+
-      '<div class="bar-wrap"><div class="bar '+barCls+'" style="width:'+pct+'%"></div></div>'+
-      '<div class="net '+cls+'">'+(x.net>0.01?'應收 ':'')+(x.net<-0.01?'應付 ':'')+fmt(Math.abs(x.net))+'</div>'+
-      '<div class="sdetail">應付 '+fmt(x.owed)+' · 已付 '+fmt(x.paid)+'</div>';
-    box.appendChild(row);
-  });
-  // settlement (greedy)
+  if(missing>0){
+    const w=document.createElement('div');w.className='hint';w.style.marginBottom='8px';
+    w.textContent='⚠ 有 '+missing+' 筆費用因匯率未載入，暫未計入結算，請按「更新匯率」。';
+    box.appendChild(w);
+  }
+  nets.forEach(x=>box.appendChild(netRow(x,maxAbs,state.base)));
   const st=$('settle');st.innerHTML='';
-  const debt=nets.filter(x=>x.net<-0.01).map(x=>({name:x.m.name,v:-x.net})).sort((a,b)=>b.v-a.v);
-  const cred=nets.filter(x=>x.net>0.01).map(x=>({name:x.m.name,v:x.net})).sort((a,b)=>b.v-a.v);
-  if(debt.length&&cred.length){
-    const head=document.createElement('div');head.className='sub';head.style.marginBottom='4px';head.textContent='結算建議：';st.appendChild(head);
-    let i=0,j=0;
-    while(i<debt.length&&j<cred.length){
-      const pay=Math.min(debt[i].v,cred[j].v);
-      const li=document.createElement('div');li.className='item';
-      li.innerHTML='<span>'+esc(debt[i].name)+'</span><span class="arrow">→</span><span>'+esc(cred[j].name)+'</span><span class="amt">'+fmt(pay)+'</span>';
-      st.appendChild(li);
-      debt[i].v-=pay;cred[j].v-=pay;
-      if(debt[i].v<0.01)i++; if(cred[j].v<0.01)j++;
-    }
-  }else if(state.expenses.length){
+  const any=settleInto(st,nets,state.base);
+  if(!any&&state.expenses.length&&missing===0){
     st.innerHTML='<div class="empty">全部結清，不需轉帳 ✓</div>';
   }
 }
+/* --- 按幣別結算：各幣別各自算帳，不做匯率換算 --- */
+function renderSummaryByCur(){
+  const curs=[...new Set(state.expenses.map(e=>e.cur))];
+  const totals=curs.map(c=>({c,t:state.expenses.filter(e=>e.cur===c).reduce((s,e)=>s+e.amount,0)}));
+  $('kpiTotalLab').textContent='總支出（各幣別）';
+  if(totals.length===0){$('kpiTotal').textContent='0';$('kpiTotal').style.fontSize='';}
+  else{
+    $('kpiTotal').innerHTML=totals.map(x=>'<span class="num">'+x.c+' '+fmt(x.t)+'</span>').join('<br>');
+    $('kpiTotal').style.fontSize=totals.length>1?'12px':'';
+  }
+  $('kpiCount').textContent=state.expenses.length;
+  $('kpiBalance').innerHTML=curs.length
+    ?'<span class="badge-ok">'+curs.length+' 種幣別</span>':'—';
+  const box=$('summary');box.innerHTML='';
+  const st=$('settle');st.innerHTML='';
+  if(!state.expenses.length){box.innerHTML='<div class="empty">尚無費用</div>';return;}
+  let anySettle=false;
+  curs.forEach(c=>{
+    const bal={};state.members.forEach(m=>bal[m.id]={owed:0,paid:0});
+    state.expenses.filter(e=>e.cur===c).forEach(e=>{
+      const per=e.amount/e.parts.length;
+      e.parts.forEach(p=>{if(bal[p])bal[p].owed+=per;});
+      if(bal[e.payer])bal[e.payer].paid+=e.amount;
+    });
+    const nets=state.members
+      .map(m=>({m,owed:bal[m.id].owed,paid:bal[m.id].paid,net:bal[m.id].paid-bal[m.id].owed}))
+      .filter(x=>x.owed>0.001||x.paid>0.001); // 只列出這個幣別有參與的人
+    const head=document.createElement('div');head.className='cur-head';
+    head.innerHTML='<span>'+c+'</span><span class="num">共 '+fmt(totals.find(t=>t.c===c).t)+'</span>';
+    box.appendChild(head);
+    const maxAbs=Math.max(1,...nets.map(x=>Math.abs(x.net)));
+    nets.forEach(x=>box.appendChild(netRow(x,maxAbs,c)));
+    if(settleInto(st,nets,c))anySettle=true;
+  });
+  if(!anySettle){
+    st.innerHTML='<div class="empty">全部結清，不需轉帳 ✓</div>';
+  }
+}
+function renderSummary(){
+  renderModeButtons();
+  if(state.settleMode==='byCur')renderSummaryByCur();
+  else renderSummaryMixed();
+  renderRateInfo();
+}
 
-/* ---------- backups (最近 6 次，以輸入日期為依據) ---------- */
+/* ---------- base currency + rate controls ---------- */
+function renderBaseSelect(){
+  const sel=$('baseCur');sel.innerHTML='';
+  CURRENCIES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);});
+  sel.value=state.base;
+}
+$('baseCur').onchange=e=>{state.base=e.target.value;save();renderAll();};
+$('rateBtn').onclick=()=>fetchRates(false);
+$('modeMixed').onclick=()=>{state.settleMode='mixed';save();renderAll();};
+$('modeByCur').onclick=()=>{state.settleMode='byCur';save();renderAll();};
+
+/* ---------- backups ---------- */
 function makeBackup(){
   if(state.expenses.length===0)return false;
   const dates=state.expenses.map(e=>e.date).sort();
   const label=dates[0]===dates[dates.length-1]?dates[0]:dates[0]+' ~ '+dates[dates.length-1];
   state.backups.unshift({
     id:uid(), label, count:state.expenses.length,
-    total:state.expenses.reduce((s,e)=>s+e.amount,0),
+    total:state.expenses.reduce((s,e)=>s+(toBase(e.amount,e.cur)||0),0),
+    totalCur:state.base,
     savedAt:new Date().toISOString(),
+    base:state.base,
     members:JSON.parse(JSON.stringify(state.members)),
     expenses:JSON.parse(JSON.stringify(state.expenses))
   });
@@ -406,7 +577,7 @@ function renderBackups(){
     const d=new Date(b.savedAt);
     const row=document.createElement('div');row.className='bk';
     row.innerHTML='<div><div class="t1">'+b.label+'</div>'+
-      '<div class="t2">'+b.count+' 筆 · 共 '+fmt(b.total)+' · 存於 '+
+      '<div class="t2">'+b.count+' 筆 · 共 '+(b.totalCur?b.totalCur+' ':'')+fmt(b.total)+' · 存於 '+
       d.toLocaleDateString('zh-Hant')+' '+d.toLocaleTimeString('zh-Hant',{hour:'2-digit',minute:'2-digit'})+'</div></div>'+
       '<div style="display:flex;gap:8px"><button class="linkbtn" data-r="'+b.id+'">還原</button>'+
       '<button class="linkbtn del" data-x="'+b.id+'">刪除</button></div>';
@@ -417,6 +588,8 @@ function renderBackups(){
     askConfirm('還原「'+b.label+'」？\n目前畫面上的資料會被取代。',()=>{
       state.members=JSON.parse(JSON.stringify(b.members));
       state.expenses=JSON.parse(JSON.stringify(b.expenses));
+      if(b.base)state.base=b.base;
+      normalize();
       save();resetForm();renderAll();toast('已還原備份');
     });
   });
@@ -438,8 +611,9 @@ $('clearBtn').onclick=()=>{
 };
 
 /* ---------- boot ---------- */
-function renderAll(){renderMembers();renderForm();renderExpenses();renderSummary();renderBackups();}
+function renderAll(){renderMembers();renderForm();renderBaseSelect();renderExpenses();renderSummary();renderBackups();}
 load();resetForm();renderAll();
+if(!ratesFresh())fetchRates(true); // 開啟時自動抓最新匯率（過期或未載入才抓）
 </script>
 </body>
 </html>
